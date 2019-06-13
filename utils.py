@@ -1,11 +1,16 @@
 import numpy as np
 from multiprocessing import Pool
+import random
+import torch
+
+
 def precision_at_k(r, k):
     assert k >= 1
     r = np.asarray(r)[:k] != 0
     if r.size != k:
         raise ValueError('Relevance score length < k')
     return np.mean(r)
+
 
 def dcg_at_k(r, k):
     r = np.asfarray(r)[:k]
@@ -20,8 +25,7 @@ def ndcg_at_k(r, k):
 
 
 def get_result(args):
-
-    (y_pred, y_true)=args
+    (y_pred, y_true) = args
 
     top_k = 50
     pred_topk_index = sorted(range(len(y_pred)), key=lambda i: y_pred[i], reverse=True)[:top_k]
@@ -39,9 +43,35 @@ def get_result(args):
 
     return np.array([p_1, p_3, p_5, ndcg_1, ndcg_3, ndcg_5])
 
+
 def evaluate(Y_tst_pred, Y_tst):
     pool = Pool(12)
-    results = pool.map(get_result,zip(list(Y_tst_pred), list(Y_tst)))
+    results = pool.map(get_result, zip(list(Y_tst_pred), list(Y_tst)))
     pool.terminate()
-    tst_result = list(np.mean(np.array(results),0))
-    print ('\rTst Prec@1,3,5: ', tst_result[:3], ' Tst NDCG@1,3,5: ', tst_result[3:])
+    tst_result = list(np.mean(np.array(results), 0))
+    print('\rTst Prec@1,3,5: ', tst_result[:3], ' Tst NDCG@1,3,5: ', tst_result[3:])
+
+
+def set_seeds(anInt):
+    torch.manual_seed(anInt)
+    torch.cuda.manual_seed_all(anInt)
+    np.random.seed(anInt)
+    random.seed(anInt)
+
+
+def get_available_devices():
+    """Get IDs of all available GPUs.
+
+    Returns:
+        device (torch.device): Main device (GPU 0 or CPU).
+        gpu_ids (list): List of IDs of all GPUs that are available.
+    """
+    gpu_ids = []
+    if torch.cuda.is_available():
+        gpu_ids += [gpu_id for gpu_id in range(torch.cuda.device_count())]
+        device = torch.device('cuda:{}'.format(gpu_ids[0]))
+        torch.cuda.set_device(device)
+    else:
+        device = torch.device('cpu')
+
+    return device, gpu_ids

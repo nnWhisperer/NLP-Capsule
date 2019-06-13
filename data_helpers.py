@@ -3,11 +3,14 @@ import os
 import re
 import itertools
 import scipy.sparse as sp
-import cPickle as pickle
+try:
+    import cPickle as pickle
+except ModuleNotFoundError:
+    import pickle
 from collections import Counter
-from nltk.corpus import stopwords
+# from nltk.corpus import stopwords
 
-cachedStopWords = stopwords.words("english")
+# cachedStopWords = stopwords.words("english")
 
 
 def clean_str(string):
@@ -48,7 +51,7 @@ def load_data_and_labels(data):
     x_text = [s.split(" ") for s in x_text]
     labels = [doc['catgy'] for doc in data]
     row_idx, col_idx, val_idx = [], [], []
-    for i in xrange(len(labels)):
+    for i in range(len(labels)):
         l_list = list(set(labels[i])) # remove duplicate cateories to avoid double count
         for y in l_list:
             row_idx.append(i)

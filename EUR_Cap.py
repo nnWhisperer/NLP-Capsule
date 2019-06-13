@@ -1,137 +1,145 @@
 from __future__ import division, print_function, unicode_literals
-import argparse
+from args import get_cap_args
 import numpy as np
 import torch
 import torch.nn as nn
 import os
 import json
-import random
 import time
-from torch.autograd import Variable
 from torch.optim import Adam
-from network import CapsNet_Text,BCE_loss
+import torch.utils.data
+from network import CapsNet_Text, BCE_loss
 from w2v import load_word2vec
 import data_helpers
+import sys
+from utils import set_seeds, get_available_devices
+from tqdm import tqdm
+from tensorboardX import SummaryWriter
+"""
+TODO: set_lr bir LRscheduler'ina donusturulebilir.
+TODO: random seed'i başka bir dosyada set etmek işe yarıyor mu?
+TODO: no_grad'lı bir validation bölümü gerekli, validation filan yok.
+print'ler ekrana basilmiyorsa, tqdm'le ilgili, squad'da kod var bunun icin.
+"""
 
 
-torch.manual_seed(0)
-torch.cuda.manual_seed(0)
-np.random.seed(0)
-random.seed(0)
+class simpleDataset(torch.utils.data.Dataset):
+    def __init__(self, args):
+        super(simpleDataset, self).__init__()
+        self.X_trn, self.Y_trn, self.Y_trn_o, self.X_tst, \
+            self.Y_tst, self.Y_tst_o, self.vocabulary, self.vocabulary_inv = \
+            data_helpers.load_data(args.dataset,
+                                   max_length=args.sequence_length,
+                                   vocab_size=args.vocab_size)
+        self.Y_trn = self.Y_trn.toarray()
+        self.Y_tst = self.Y_tst.toarray()
 
-parser = argparse.ArgumentParser()
+        self.X_trn = self.X_trn.astype(np.int32)
+        self.X_tst = self.X_tst.astype(np.int32)
+        self.Y_trn = self.Y_trn.astype(np.int32)
+        self.Y_tst = self.Y_tst.astype(np.int32)
 
-parser.add_argument('--dataset', type=str, default='eurlex_raw_text.p',
-                    help='Options: eurlex_raw_text.p, rcv1_raw_text.p, wiki30k_raw_text.p')
-parser.add_argument('--vocab_size', type=int, default=30001, help='vocabulary size')
-parser.add_argument('--vec_size', type=int, default=300, help='embedding size')
-parser.add_argument('--sequence_length', type=int, default=500, help='the length of documents')
-parser.add_argument('--is_AKDE', type=bool, default=True, help='if Adaptive KDE routing is enabled')
-parser.add_argument('--num_epochs', type=int, default=30, help='Number of training epochs')
-parser.add_argument('--tr_batch_size', type=int, default=256, help='Batch size for training')
-parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate for training')
-parser.add_argument('--start_from', type=str, default='', help='')
+    def get_class_count(self):
+        return self.Y_trn.shape[1]
 
-parser.add_argument('--num_compressed_capsule', type=int, default=128, help='The number of compact capsules')
-parser.add_argument('--dim_capsule', type=int, default=16, help='The number of dimensions for capsules')
+    def get_vocabulary_inv(self):
+        return self.vocabulary_inv
 
-parser.add_argument('--learning_rate_decay_start', type=int, default=0,
-                    help='at what iteration to start decaying learning rate? (-1 = dont) (in epoch)')
-parser.add_argument('--learning_rate_decay_every', type=int, default=20,
-                    help='how many iterations thereafter to drop LR?(in epoch)')
-parser.add_argument('--learning_rate_decay_rate', type=float, default=0.95,
-                    help='how many iterations thereafter to drop LR?(in epoch)')
+    def __len__(self):
+        return self.X_trn.shape[0]
 
-
-
-args = parser.parse_args()
-params = vars(args)
-print(json.dumps(params, indent = 2))
-
-X_trn, Y_trn, Y_trn_o, X_tst, Y_tst, Y_tst_o, vocabulary, vocabulary_inv = data_helpers.load_data(args.dataset,
-                                                                           max_length=args.sequence_length,
-                                                                           vocab_size=args.vocab_size)
-Y_trn = Y_trn.toarray()
-Y_tst = Y_tst.toarray()
-
-X_trn = X_trn.astype(np.int32)
-X_tst = X_tst.astype(np.int32)
-Y_trn = Y_trn.astype(np.int32)
-Y_tst = Y_tst.astype(np.int32)
-
-embedding_weights = load_word2vec('glove', vocabulary_inv, args.vec_size)
-
-args.num_classes = Y_trn.shape[1]
-
-capsule_net = CapsNet_Text(args, embedding_weights)
-capsule_net = nn.DataParallel(capsule_net).cuda()
+    def __getitem__(self, idx):
+        return self.X_trn[idx], self.Y_trn_o[idx]
 
 
-def transformLabels(labels):
-    label_index = list(set([l for _ in labels for l in _]))
-    label_index.sort()
+def main(main_args):
+    set_seeds(0)
+    a = torch.rand(5)
+    print(a)
+    # assert all(a == torch.tensor([0.4963, 0.7682, 0.0885, 0.1320, 0.3074]))
+    args = get_cap_args(main_args)
+    params = vars(args)
+    print(json.dumps(params, indent=2))
 
-    variable_num_classes = len(label_index)
-    target = []
-    for _ in labels:
-        tmp = np.zeros([variable_num_classes], dtype=np.float32)
-        tmp[[label_index.index(l) for l in _]] = 1
-        target.append(tmp)
-    target = np.array(target)
-    return label_index, target
+    step = 0
+    tbx = SummaryWriter(args.save_dir)
 
-current_lr = args.learning_rate
+    train_dataset = simpleDataset(args)
+    train_loader = torch.utils.data.DataLoader(train_dataset,
+                                               batch_size=args.tr_batch_size,
+                                               shuffle=True,
+                                               num_workers=args.num_workers)
 
-optimizer = Adam(capsule_net.parameters(), lr=current_lr)
+    embedding_weights = load_word2vec('glove', train_dataset.get_vocabulary_inv(), args.vec_size)
+    args.num_classes = train_dataset.get_class_count()
 
-def set_lr(optimizer, lr):
-    for group in optimizer.param_groups:
-        group['lr'] = lr
+    device, args.gpu_ids = get_available_devices()
+    args.tr_batch_size *= max(1, len(args.gpu_ids))
+    model = CapsNet_Text(args, embedding_weights)
+    model = nn.DataParallel(model, args.gpu_ids)
+    model = model.to(device)
+    model.train()
 
-for epoch in range(args.num_epochs):
-    torch.cuda.empty_cache()
+    def transformLabels(labels):
+        label_index = list(set([l for _ in labels for l in _]))
+        label_index.sort()
 
-    nr_trn_num = X_trn.shape[0]
-    nr_batches = int(np.ceil(nr_trn_num / float(args.tr_batch_size)))
+        variable_num_classes = len(label_index)
+        target = []
+        for _ in labels:
+            tmp = np.zeros([variable_num_classes], dtype=np.float32)
+            tmp[[label_index.index(l) for l in _]] = 1
+            target.append(tmp)
+        target = torch.tensor(target)
+        return label_index, target
 
-    if epoch > args.learning_rate_decay_start and args.learning_rate_decay_start >= 0:
-        frac = (epoch - args.learning_rate_decay_start) // args.learning_rate_decay_every
-        decay_factor = args.learning_rate_decay_rate  ** frac
-        current_lr = current_lr * decay_factor
-    print(current_lr)
-    set_lr(optimizer, current_lr)
+    current_lr = args.learning_rate
 
-    capsule_net.train()
-    for iteration, batch_idx in enumerate(np.random.permutation(xrange(nr_batches))):
-        start = time.time()
-        start_idx = batch_idx * args.tr_batch_size
-        end_idx = min((batch_idx + 1) * args.tr_batch_size, nr_trn_num)
+    optimizer = Adam(model.parameters(), lr=current_lr)
 
-        X = X_trn[start_idx:end_idx]
-        Y = Y_trn_o[start_idx:end_idx]
-        data = Variable(torch.from_numpy(X).long()).cuda()
+    def set_lr(optimizer, lr):
+        for group in optimizer.param_groups:
+            group['lr'] = lr
 
-        batch_labels, batch_target = transformLabels(Y)
-        batch_target = Variable(torch.from_numpy(batch_target).float()).cuda()
-        optimizer.zero_grad()
-        poses, activations = capsule_net(data, batch_labels)
-        loss = BCE_loss(activations, batch_target)
-        loss.backward()
-        optimizer.step()
-        torch.cuda.empty_cache()
-        done = time.time()
-        elapsed = done - start
+    for epoch in range(args.num_epochs):
+        if len(args.gpu_ids) > 0:  # these may not be necessary, let's experiment with it.
+            torch.cuda.empty_cache()
 
-        print("\rIteration: {}/{} ({:.1f}%)  Loss: {:.5f} {:.5f}".format(
-                      iteration, nr_batches,
-                      iteration * 100 / nr_batches,
-                      loss.item(), elapsed),
-                      end="")
+        if epoch > args.learning_rate_decay_start and args.learning_rate_decay_start >= 0:
+            frac = (epoch - args.learning_rate_decay_start) // args.learning_rate_decay_every
+            decay_factor = args.learning_rate_decay_rate ** frac
+            current_lr = current_lr * decay_factor
+        print(current_lr)
+        set_lr(optimizer, current_lr)  # this could be replaced by a scheduler.
 
-    torch.cuda.empty_cache()
+        with torch.enable_grad(), tqdm(total=len(train_loader.dataset)) as progress_bar:
+            for X, Y in train_loader:
+                start = time.time()
+                data = X.long().to(device)
 
-    if (epoch + 1) > 20:
-	checkpoint_path = os.path.join('save', 'model-eur-akde-' + str(epoch + 1) + '.pth')
-        torch.save(capsule_net.state_dict(), checkpoint_path)
-        print("model saved to {}".format(checkpoint_path))
+                batch_labels, batch_target = transformLabels(Y)
+                batch_target = batch_target.float().to(device)
+                optimizer.zero_grad()
+                poses, activations = model(data, batch_labels)
+                loss = BCE_loss(activations, batch_target)
+                loss.backward()
+                optimizer.step()
+                if len(args.gpu_ids) > 0:
+                    torch.cuda.empty_cache()
 
+                progress_bar.update(args.tr_batch_size)
+                progress_bar.set_postfix(epoch=epoch, NLL=loss.item(), elapsed=time.time() - start)
+                step += args.tr_batch_size
+                tbx.add_scalar('train/NLL', loss.item(), step)
+
+        if len(args.gpu_ids) > 0:
+            torch.cuda.empty_cache()
+
+        if (epoch + 1) > 20:
+            checkpoint_path = os.path.join('save', 'model-eur-akde-' + str(epoch + 1) + '.pth')
+            torch.save(model.state_dict(), checkpoint_path)
+            print("model saved to {}".format(checkpoint_path))
+
+
+if __name__ == '__main__':
+    main(sys.argv[1:])

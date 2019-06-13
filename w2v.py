@@ -1,6 +1,6 @@
-from os.path import join, exists, split
-import os
+from os.path import join, exists
 import numpy as np
+
 
 def load_word2vec(model_type, vocabulary_inv, num_features=300):
     """
@@ -24,7 +24,7 @@ def load_word2vec(model_type, vocabulary_inv, num_features=300):
         embedding_model = {}
         for line in open(model_name, 'r'):
             tmp = line.strip().split()
-            word, vec = tmp[0], map(float, tmp[1:])
+            word, vec = tmp[0], list(map(float, tmp[1:]))
             assert(len(vec) == num_features)
             if word not in embedding_model:
                 embedding_model[word] = vec
@@ -36,6 +36,7 @@ def load_word2vec(model_type, vocabulary_inv, num_features=300):
     embedding_weights = [embedding_model[w] if w in embedding_model
                          else np.random.uniform(-0.25, 0.25, num_features)
                          for w in vocabulary_inv]
+
     embedding_weights = np.array(embedding_weights).astype('float32')
 
     return embedding_weights
