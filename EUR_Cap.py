@@ -52,6 +52,16 @@ class simpleDataset(torch.utils.data.Dataset):
         return self.X_trn[idx], self.Y_trn_o[idx]
 
 
+def is_better_to_stop(epoch, start_time, hours):
+    if not hours:  # 0 and 0.0 are to be accepted.
+        return False
+    approx_hrs_in_seconds = hours * 60 * 60
+    seconds_elapsed = time.time() - start_time
+    assert seconds_elapsed > 0, "time elapsed can't be negative."
+    seconds_per_epoch = seconds_elapsed / epoch
+    return (seconds_elapsed + seconds_per_epoch) >= approx_hrs_in_seconds
+
+
 def main(main_args):
     set_seeds(0)
     a = torch.rand(5)
@@ -101,7 +111,12 @@ def main(main_args):
         for group in optimizer.param_groups:
             group['lr'] = lr
 
+    if args.stop_time:
+        start_time = time.time()
+
     for epoch in range(args.num_epochs):
+        if args.stop_time and is_better_to_stop(epoch, start_time, args.stop_time):
+            break
         if len(args.gpu_ids) > 0:  # these may not be necessary, let's experiment with it.
             torch.cuda.empty_cache()
 

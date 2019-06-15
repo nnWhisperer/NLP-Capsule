@@ -43,3 +43,4 @@ def get_common_args(parser):
     parser.add_argument('--dim_capsule', type=int, default=16, help='The number of dimensions for capsules')
     parser.add_argument('--num_workers', type=int, default=4, help='Number of sub-processes to use per data loader.')
     parser.add_argument('--save_dir', type=str, default='./save/', help='Base directory for saving information.')
+    parser.add_argument('--stop_time', type=float, default=0.0, help='Whether to be stopped in limited hours so that could be run on kaggle.com.')
