@@ -13,6 +13,9 @@ import os
 import json
 import sys
 import tqdm
+"""
+TODO: code that use numpy could be replaced with their pytorch equivalents.
+"""
 
 
 def load_model(model_name, args, embedding_weights, is_capsule=True):

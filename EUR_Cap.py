@@ -16,21 +16,16 @@ from tqdm import tqdm
 from tensorboardX import SummaryWriter
 import torch.nn.functional as F
 """
-TODO: set_lr bir LRscheduler'ina donusturulebilir.
-TODO: random seed'i başka bir dosyada set etmek işe yarıyor mu?
-TODO: no_grad'lı bir validation bölümü gerekli, validation filan yok.
-print'ler ekrana basilmiyorsa, tqdm'le ilgili, squad'da kod var bunun icin.
+TODO: is it OK to set seeds by calling a method in another file?
+TODO: is it necessary to call torch.cuda.empty_cache() that often?
 """
 
 
 class simpleDataset(torch.utils.data.Dataset):
+
     def __init__(self, args):
         super(simpleDataset, self).__init__()
-        self.X_trn, self.Y_trn, self.Y_trn_o, self.X_tst, \
-            self.Y_tst, self.Y_tst_o, self.vocabulary, self.vocabulary_inv = \
-            data_helpers.load_data(args.dataset,
-                                   max_length=args.sequence_length,
-                                   vocab_size=args.vocab_size)
+        self.X_trn, self.Y_trn, self.Y_trn_o, self.X_tst, self.Y_tst, self.Y_tst_o, self.vocabulary, self.vocabulary_inv = data_helpers.load_data(args.dataset, max_length=args.sequence_length, vocab_size=args.vocab_size)
         self.is_train = True
 
     def get_class_count(self):
@@ -66,11 +61,23 @@ def is_better_to_stop(epoch, start_time, hours):
     return (seconds_elapsed + seconds_per_epoch) >= approx_hrs_in_seconds
 
 
+def transformLabels(labels):
+    label_index = list(set([l for _ in labels for l in _]))
+    label_index.sort()
+
+    variable_num_classes = len(label_index)
+    batch_size = len(labels)
+    my_target = torch.zeros((batch_size, variable_num_classes), dtype=torch.float)
+    for i_row, aRow in enumerate(my_target):
+        aRow[[label_index.index(l) for l in labels[i_row]]] = 1
+    # or equivalently:
+    # my_target.scatter_(dim=-1, index=torch.tensor(list(map(lambda label: list(map(label_index.index, label)), labels))), value=1)
+    assert torch.sum(my_target) != torch.tensor(0, dtype=torch.float)
+    return torch.tensor(label_index), my_target
+
+
 def main(main_args):
     set_seeds(0)
-    a = torch.rand(5)
-    print(a)
-    # assert all(a == torch.tensor([0.4963, 0.7682, 0.0885, 0.1320, 0.3074]))
     args = get_cap_args(main_args)
     params = vars(args)
     print(json.dumps(params, indent=2))
@@ -94,19 +101,6 @@ def main(main_args):
     if torch.cuda.device_count() > 1:
         model = nn.DataParallel(model, args.gpu_ids)
     model = model.to(device)
-    def transformLabels(labels):
-        label_index = list(set([l for _ in labels for l in _]))
-        label_index.sort()
-
-        variable_num_classes = len(label_index)
-        batch_size = len(labels)
-        my_target = torch.zeros((batch_size, variable_num_classes), dtype=torch.float)
-        for i_row, aRow in enumerate(my_target):
-            aRow[[label_index.index(l) for l in labels[i_row]]] = 1
-        # or equivalently:
-        # my_target.scatter_(dim=-1, index=torch.tensor(list(map(lambda label: list(map(label_index.index, label)), labels))), value=1)
-        assert torch.sum(my_target) != torch.tensor(0, dtype=torch.float)
-        return torch.tensor(label_index), my_target
 
     def scheduler_func(epoch):
         if epoch > args.learning_rate_decay_start and args.learning_rate_decay_start >= 0:
@@ -122,11 +116,10 @@ def main(main_args):
     if args.stop_time:
         start_time = time.time()
 
-    for epoch in range(args.num_epochs):
+    for epoch in range(1, args.num_epochs + 1):
         if args.stop_time and is_better_to_stop(epoch, start_time, args.stop_time):
             break
-        if len(args.gpu_ids) > 0:  # these may not be necessary, let's experiment with it.
-            torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
         scheduler.step()
 
@@ -146,8 +139,7 @@ def main(main_args):
                 loss = BCE_loss(activations, batch_target)
                 loss.backward()
                 optimizer.step()
-                if len(args.gpu_ids) > 0:
-                    torch.cuda.empty_cache()
+                torch.cuda.empty_cache()
 
                 progress_bar.update(args.tr_batch_size)
                 progress_bar.set_postfix(epoch=epoch, NLL=loss.item(), elapsed=time.time() - start)
@@ -175,8 +167,7 @@ def main(main_args):
                 tbx.add_scalar('val/NLL', loss.item(), validation_step)
         tbx.add_scalar('val/lossPerEpoch', torch.mean(torch.tensor(losses)).item(), epoch)
 
-        if len(args.gpu_ids) > 0:
-            torch.cuda.empty_cache()
+        torch.cuda.empty_cache()
 
     checkpoint_path = os.path.join('save', 'model-eur-akde-' + 'last' + '.pth')
     torch.save(model.state_dict(), checkpoint_path)

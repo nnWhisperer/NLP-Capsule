@@ -3,8 +3,10 @@ import torch.nn as nn
 import torch.nn.functional as F
 from layer import PrimaryCaps, FCCaps, FlattenCaps
 
+
 def BCE_loss(x, target):
     return nn.BCELoss()(x.squeeze(2), target)
+
 
 class CapsNet_Text(nn.Module):
     def __init__(self, args, w2v):
@@ -28,11 +30,12 @@ class CapsNet_Text(nn.Module):
         self.W_doc = nn.Parameter(torch.FloatTensor(W_doc_dim, args.num_compressed_capsule))
         torch.nn.init.xavier_uniform_(self.W_doc)
 
-        self.fc_capsules_doc_child = FCCaps(args, output_capsule_num=args.num_classes, input_capsule_num=args.num_compressed_capsule,
-                            	  in_channels=args.dim_capsule, out_channels=args.dim_capsule)
+        self.fc_capsules_doc_child = FCCaps(args, output_capsule_num=args.num_classes,
+                                            input_capsule_num=args.num_compressed_capsule,
+                                            in_channels=args.dim_capsule, out_channels=args.dim_capsule)
 
     def compression(self, poses, W):
-        poses = torch.matmul(poses.permute(0,2,1), W).permute(0,2,1)
+        poses = torch.matmul(poses.permute(0, 2, 1), W).permute(0, 2, 1)
         activations = torch.sqrt((poses ** 2).sum(2))
         return poses, activations
 
@@ -73,9 +76,9 @@ class CNN_KIM(nn.Module):
 
     def forward(self, x):
         x = self.embed(x).unsqueeze(1)
-        x1 = self.conv_and_pool(x,self.conv13)
-        x2 = self.conv_and_pool(x,self.conv14)
-        x3 = self.conv_and_pool(x,self.conv15)
+        x1 = self.conv_and_pool(x, self.conv13)
+        x2 = self.conv_and_pool(x, self.conv14)
+        x3 = self.conv_and_pool(x, self.conv15)
         x = torch.cat((x1, x2, x3), 1)
         activations = self.fc1(x)
         return self.m(activations)
