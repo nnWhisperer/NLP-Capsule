@@ -115,7 +115,7 @@ class FCCaps(nn.Module):
         self.input_capsule_num = input_capsule_num
         self.output_capsule_num = output_capsule_num
 
-        self.W1 = nn.Parameter(torch.FloatTensor(1, input_capsule_num, output_capsule_num, out_channels, in_channels))
+        self.W1 = nn.Parameter(torch.FloatTensor(input_capsule_num, output_capsule_num, out_channels, in_channels))
         torch.nn.init.xavier_uniform_(self.W1)
 
         self.is_AKDE = args.is_AKDE
@@ -124,13 +124,10 @@ class FCCaps(nn.Module):
 
     def forward(self, x, y, labels):
         batch_size = x.size(0)
-        variable_output_capsule_num = len(labels)
-        W1 = self.W1[:,:,labels,:,:]
+        variable_output_capsule_num = self.W1.shape[1] if labels is None else len(labels)
 
         x = torch.stack([x] * variable_output_capsule_num, dim=2).unsqueeze(4)
-
-        W1 = W1.repeat(batch_size, 1, 1, 1, 1)
-        u_hat = torch.matmul(W1, x)
+        u_hat = torch.matmul(self.W1 if labels is None else self.W1[:, labels, :, :], x)
 
         b_ij = Variable(torch.zeros(batch_size, self.input_capsule_num, variable_output_capsule_num, 1)).cuda()
 

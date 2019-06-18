@@ -15,6 +15,7 @@ import sys
 from utils import set_seeds, get_available_devices
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
+import torch.nn.functional as F
 """
 TODO: set_lr bir LRscheduler'ina donusturulebilir.
 TODO: random seed'i başka bir dosyada set etmek işe yarıyor mu?
@@ -38,6 +39,7 @@ class simpleDataset(torch.utils.data.Dataset):
         self.X_tst = self.X_tst.astype(np.int32)
         self.Y_trn = self.Y_trn.astype(np.int32)
         self.Y_tst = self.Y_tst.astype(np.int32)
+        self.is_train = True
 
     def get_class_count(self):
         return self.Y_trn.shape[1]
@@ -46,10 +48,16 @@ class simpleDataset(torch.utils.data.Dataset):
         return self.vocabulary_inv
 
     def __len__(self):
-        return self.X_trn.shape[0]
+        return self.X_trn.shape[0] if self.is_train else self.X_tst.shape[0]
+
+    def set_train(self):
+        self.is_train = True
+
+    def set_val(self):
+        self.is_train = False
 
     def __getitem__(self, idx):
-        return self.X_trn[idx], self.Y_trn_o[idx]
+        return (self.X_trn[idx], self.Y_trn_o[idx]) if self.is_train else (self.X_tst[idx], self.Y_tst[idx])
 
 
 def my_collate_fn(examples):
@@ -75,26 +83,24 @@ def main(main_args):
     params = vars(args)
     print(json.dumps(params, indent=2))
 
-    step = 0
+    validation_step, train_step = 0, 0
     tbx = SummaryWriter(args.save_dir)
 
-    train_dataset = simpleDataset(args)
-    train_loader = torch.utils.data.DataLoader(train_dataset,
-                                               batch_size=args.tr_batch_size,
-                                               shuffle=True,
-                                               num_workers=args.num_workers,
-                                               collate_fn=my_collate_fn)
+    the_dataset = simpleDataset(args)
+    dataset_loader = torch.utils.data.DataLoader(the_dataset,
+                                                 batch_size=args.tr_batch_size,
+                                                 shuffle=True,
+                                                 num_workers=args.num_workers,
+                                                 collate_fn=my_collate_fn)
 
-    embedding_weights = load_word2vec('glove', train_dataset.get_vocabulary_inv(), args.vec_size)
-    args.num_classes = train_dataset.get_class_count()
+    embedding_weights = load_word2vec('glove', the_dataset.get_vocabulary_inv(), args.vec_size)
+    args.num_classes = the_dataset.get_class_count()
 
     device, args.gpu_ids = get_available_devices()
     args.tr_batch_size *= max(1, len(args.gpu_ids))
     model = CapsNet_Text(args, embedding_weights)
     model = nn.DataParallel(model, args.gpu_ids)
     model = model.to(device)
-    model.train()
-
     def transformLabels(labels):
         label_index = list(set([l for _ in labels for l in _]))
         label_index.sort()
@@ -132,8 +138,11 @@ def main(main_args):
         print(current_lr)
         set_lr(optimizer, current_lr)  # this could be replaced by a scheduler.
 
-        with torch.enable_grad(), tqdm(total=len(train_loader.dataset)) as progress_bar:
-            for X, Y in train_loader:
+        the_dataset.set_train()
+        model.train()
+
+        with torch.enable_grad(), tqdm(total=len(dataset_loader.dataset)) as progress_bar:
+            for X, Y in dataset_loader:
                 start = time.time()
                 data = X.long().to(device)
 
@@ -149,8 +158,29 @@ def main(main_args):
 
                 progress_bar.update(args.tr_batch_size)
                 progress_bar.set_postfix(epoch=epoch, NLL=loss.item(), elapsed=time.time() - start)
-                step += args.tr_batch_size
-                tbx.add_scalar('train/NLL', loss.item(), step)
+                train_step += args.tr_batch_size
+                tbx.add_scalar('train/NLL', loss.item(), train_step)
+
+        the_dataset.set_val()
+        model.eval()
+        losses = []
+
+        with torch.no_grad(), tqdm(total=len(dataset_loader.dataset)) as progress_bar:
+            for X, Y in dataset_loader:
+                start = time.time()
+
+                data = torch.stack(X, dim=0).to(device)
+                poses, activations = model(data, None)
+                Y = torch.stack(list(map(lambda a: torch.tensor(a.todense(), dtype=torch.float), Y))).squeeze(1)
+                Y = F.pad(Y, (0, activations.shape[1] - Y.shape[1]), "constant", value=0).to(device)
+                loss = BCE_loss(activations, Y)
+                losses.append(loss)
+
+                progress_bar.update(args.tr_batch_size)
+                progress_bar.set_postfix(epoch=epoch, NLL=loss.item(), elapsed=time.time() - start)
+                validation_step += args.tr_batch_size
+                tbx.add_scalar('val/NLL', loss.item(), validation_step)
+        tbx.add_scalar('val/lossPerEpoch', torch.mean(torch.tensor(losses)).item(), epoch)
 
         if len(args.gpu_ids) > 0:
             torch.cuda.empty_cache()
