@@ -52,6 +52,10 @@ class simpleDataset(torch.utils.data.Dataset):
         return self.X_trn[idx], self.Y_trn_o[idx]
 
 
+def my_collate_fn(examples):
+    return list(zip(*examples))
+
+
 def is_better_to_stop(epoch, start_time, hours):
     if not hours:  # 0 and 0.0 are to be accepted.
         return False
@@ -78,7 +82,8 @@ def main(main_args):
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=args.tr_batch_size,
                                                shuffle=True,
-                                               num_workers=args.num_workers)
+                                               num_workers=args.num_workers,
+                                               collate_fn=my_collate_fn)
 
     embedding_weights = load_word2vec('glove', train_dataset.get_vocabulary_inv(), args.vec_size)
     args.num_classes = train_dataset.get_class_count()
