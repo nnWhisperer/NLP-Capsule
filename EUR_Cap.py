@@ -99,7 +99,8 @@ def main(main_args):
     device, args.gpu_ids = get_available_devices()
     args.tr_batch_size *= max(1, len(args.gpu_ids))
     model = CapsNet_Text(args, embedding_weights)
-    model = nn.DataParallel(model, args.gpu_ids)
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model, args.gpu_ids)
     model = model.to(device)
     def transformLabels(labels):
         label_index = list(set([l for _ in labels for l in _]))

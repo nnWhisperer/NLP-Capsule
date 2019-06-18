@@ -18,7 +18,8 @@ import tqdm
 def load_model(model_name, args, embedding_weights, is_capsule=True):
     model = CapsNet_Text(args, embedding_weights) if is_capsule else CNN_KIM(args, embedding_weights)
     model.load_state_dict(torch.load(os.path.join(args.start_from, model_name)))
-    model = nn.DataParallel(model, args.gpu_ids)
+    if torch.cuda.device_count() > 1:
+        model = nn.DataParallel(model, args.gpu_ids)
     print(model_name + ' loaded')
     return model
 
