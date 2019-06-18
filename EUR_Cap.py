@@ -115,13 +115,16 @@ def main(main_args):
         target = torch.tensor(target)
         return label_index, target
 
-    current_lr = args.learning_rate
+    def scheduler_func(epoch):
+        if epoch > args.learning_rate_decay_start and args.learning_rate_decay_start >= 0:
+            frac = (epoch - args.learning_rate_decay_start) // args.learning_rate_decay_every
+            decay_factor = args.learning_rate_decay_rate ** frac
+        else:
+            decay_factor = 1
+        return decay_factor
 
-    optimizer = Adam(model.parameters(), lr=current_lr)
-
-    def set_lr(optimizer, lr):
-        for group in optimizer.param_groups:
-            group['lr'] = lr
+    optimizer = Adam(model.parameters(), lr=args.learning_rate)
+    scheduler = torch.optim.lr_scheduler.LambdaLR(optimizer, scheduler_func)
 
     if args.stop_time:
         start_time = time.time()
@@ -132,12 +135,7 @@ def main(main_args):
         if len(args.gpu_ids) > 0:  # these may not be necessary, let's experiment with it.
             torch.cuda.empty_cache()
 
-        if epoch > args.learning_rate_decay_start and args.learning_rate_decay_start >= 0:
-            frac = (epoch - args.learning_rate_decay_start) // args.learning_rate_decay_every
-            decay_factor = args.learning_rate_decay_rate ** frac
-            current_lr = current_lr * decay_factor
-        print(current_lr)
-        set_lr(optimizer, current_lr)  # this could be replaced by a scheduler.
+        scheduler.step()
 
         the_dataset.set_train()
         model.train()
