@@ -1,8 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.autograd import Variable
-import numpy as np
+
 
 def squash_v1(x, axis):
     s_squared_norm = (x ** 2).sum(axis, keepdim=True)
@@ -48,7 +47,7 @@ def Adaptive_KDE_routing(batch_size, b_ij, u_hat):
         dd = dd.view(batch_size, dd.size(1), dd.size(2))
 
         kde_loss = torch.mul(c_ij, dd).sum()/batch_size
-        kde_loss = np.log(kde_loss.item())
+        kde_loss = torch.log(kde_loss)
 
         if abs(kde_loss - last_loss) < 0.05:
             break
@@ -129,7 +128,10 @@ class FCCaps(nn.Module):
         x = torch.stack([x] * variable_output_capsule_num, dim=2).unsqueeze(4)
         u_hat = torch.matmul(self.W1 if labels is None else self.W1[:, labels, :, :], x)
 
-        b_ij = Variable(torch.zeros(batch_size, self.input_capsule_num, variable_output_capsule_num, 1)).cuda()
+        if u_hat.is_cuda:
+            b_ij = torch.cuda.FloatTensor(batch_size, self.input_capsule_num, variable_output_capsule_num, 1).fill_(0)
+        else:
+            b_ij = torch.zeros(batch_size, self.input_capsule_num, variable_output_capsule_num, 1)
 
         if self.is_AKDE == True:
             poses, activations = Adaptive_KDE_routing(batch_size, b_ij, u_hat)

@@ -1,4 +1,3 @@
-import numpy as np
 import os
 import re
 import itertools
@@ -8,6 +7,7 @@ try:
 except ModuleNotFoundError:
     import pickle
 from collections import Counter
+import torch
 # from nltk.corpus import stopwords
 
 # cachedStopWords = stopwords.words("english")
@@ -74,7 +74,7 @@ def build_vocab(sentences, vocab_size=50000):
 
 
 def build_input_data(sentences, vocabulary):
-    x = np.array([[vocabulary[word] if word in vocabulary else vocabulary['<UNK/>'] for word in sentence] for sentence in sentences])
+    x = torch.tensor([[vocabulary[word] if word in vocabulary else vocabulary['<UNK/>'] for word in sentence] for sentence in sentences], dtype=torch.long)
     #x = np.array([[vocabulary[word] if word in vocabulary else len(vocabulary) for word in sentence] for sentence in sentences])
     return x
 

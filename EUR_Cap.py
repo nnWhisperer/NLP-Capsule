@@ -1,6 +1,5 @@
 from __future__ import division, print_function, unicode_literals
 from args import get_cap_args
-import numpy as np
 import torch
 import torch.nn as nn
 import os
@@ -32,13 +31,6 @@ class simpleDataset(torch.utils.data.Dataset):
             data_helpers.load_data(args.dataset,
                                    max_length=args.sequence_length,
                                    vocab_size=args.vocab_size)
-        self.Y_trn = self.Y_trn.toarray()
-        self.Y_tst = self.Y_tst.toarray()
-
-        self.X_trn = self.X_trn.astype(np.int32)
-        self.X_tst = self.X_tst.astype(np.int32)
-        self.Y_trn = self.Y_trn.astype(np.int32)
-        self.Y_tst = self.Y_tst.astype(np.int32)
         self.is_train = True
 
     def get_class_count(self):
@@ -107,13 +99,14 @@ def main(main_args):
         label_index.sort()
 
         variable_num_classes = len(label_index)
-        target = []
-        for _ in labels:
-            tmp = np.zeros([variable_num_classes], dtype=np.float32)
-            tmp[[label_index.index(l) for l in _]] = 1
-            target.append(tmp)
-        target = torch.tensor(target)
-        return label_index, target
+        batch_size = len(labels)
+        my_target = torch.zeros((batch_size, variable_num_classes), dtype=torch.float)
+        for i_row, aRow in enumerate(my_target):
+            aRow[[label_index.index(l) for l in labels[i_row]]] = 1
+        # or equivalently:
+        # my_target.scatter_(dim=-1, index=torch.tensor(list(map(lambda label: list(map(label_index.index, label)), labels))), value=1)
+        assert torch.sum(my_target) != torch.tensor(0, dtype=torch.float)
+        return torch.tensor(label_index), my_target
 
     def scheduler_func(epoch):
         if epoch > args.learning_rate_decay_start and args.learning_rate_decay_start >= 0:
@@ -143,10 +136,11 @@ def main(main_args):
         with torch.enable_grad(), tqdm(total=len(dataset_loader.dataset)) as progress_bar:
             for X, Y in dataset_loader:
                 start = time.time()
-                data = X.long().to(device)
 
                 batch_labels, batch_target = transformLabels(Y)
-                batch_target = batch_target.float().to(device)
+                batch_target = batch_target.to(device)
+                batch_labels = batch_labels.to(device)
+                data = torch.stack(X, dim=0).to(device)
                 optimizer.zero_grad()
                 poses, activations = model(data, batch_labels)
                 loss = BCE_loss(activations, batch_target)
