@@ -2,7 +2,6 @@ import argparse
 
 
 def get_eval_args(args):
-    """Get arguments needed in setup.py."""
 
     parser = argparse.ArgumentParser()
     get_common_args(parser)
