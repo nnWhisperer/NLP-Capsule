@@ -61,19 +61,19 @@ def is_better_to_stop(epoch, start_time, hours):
     return (seconds_elapsed + seconds_per_epoch) >= approx_hrs_in_seconds
 
 
-def transformLabels(labels):
+def transformLabels(labels, device):
     label_index = list(set([l for _ in labels for l in _]))
     label_index.sort()
 
     variable_num_classes = len(label_index)
     batch_size = len(labels)
-    my_target = torch.zeros((batch_size, variable_num_classes), dtype=torch.float)
+    my_target = torch.zeros((batch_size, variable_num_classes), dtype=torch.float, device=device)
     for i_row, aRow in enumerate(my_target):
         aRow[[label_index.index(l) for l in labels[i_row]]] = 1
     # or equivalently:
     # my_target.scatter_(dim=-1, index=torch.tensor(list(map(lambda label: list(map(label_index.index, label)), labels))), value=1)
-    assert torch.sum(my_target) != torch.tensor(0, dtype=torch.float)
-    return torch.tensor(label_index), my_target
+    assert torch.sum(my_target) != torch.tensor(0, dtype=torch.float, device=device)
+    return torch.tensor(label_index, device=device), my_target
 
 
 def main(main_args):
@@ -130,9 +130,7 @@ def main(main_args):
             for X, Y in dataset_loader:
                 start = time.time()
 
-                batch_labels, batch_target = transformLabels(Y)
-                batch_target = batch_target.to(device)
-                batch_labels = batch_labels.to(device)
+                batch_labels, batch_target = transformLabels(Y, device)
                 data = torch.stack(X, dim=0).to(device)
                 optimizer.zero_grad()
                 poses, activations = model(data, batch_labels)
