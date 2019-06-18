@@ -186,10 +186,9 @@ def main(main_args):
         if len(args.gpu_ids) > 0:
             torch.cuda.empty_cache()
 
-        if (epoch + 1) > 20:
-            checkpoint_path = os.path.join('save', 'model-eur-akde-' + str(epoch + 1) + '.pth')
-            torch.save(model.state_dict(), checkpoint_path)
-            print("model saved to {}".format(checkpoint_path))
+    checkpoint_path = os.path.join('save', 'model-eur-akde-' + 'last' + '.pth')
+    torch.save(model.state_dict(), checkpoint_path)
+    print("model saved to {}".format(checkpoint_path))
 
 
 if __name__ == '__main__':
