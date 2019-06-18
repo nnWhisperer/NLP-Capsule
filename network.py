@@ -13,9 +13,9 @@ class CapsNet_Text(nn.Module):
         self.embed = nn.Embedding(args.vocab_size, args.vec_size)
         self.embed.weight = nn.Parameter(torch.from_numpy(w2v))
 
-        self.ngram_size = [2,4,8]
-
-        self.convs_doc = nn.ModuleList([nn.Conv1d(args.sequence_length, 32, K, stride=2) for K in self.ngram_size])
+        self.ngram_size = [2, 4, 8]
+        stride = 2
+        self.convs_doc = nn.ModuleList([nn.Conv1d(args.sequence_length, 32, K, stride=stride) for K in self.ngram_size])
         torch.nn.init.xavier_uniform_(self.convs_doc[0].weight)
         torch.nn.init.xavier_uniform_(self.convs_doc[1].weight)
         torch.nn.init.xavier_uniform_(self.convs_doc[2].weight)
@@ -23,8 +23,9 @@ class CapsNet_Text(nn.Module):
         self.primary_capsules_doc = PrimaryCaps(num_capsules=args.dim_capsule, in_channels=32, out_channels=32, kernel_size=1, stride=1)
 
         self.flatten_capsules = FlattenCaps()
+        W_doc_dim = 32 * torch.sum(torch.tensor([(args.vec_size - i + 2) // stride for i in self.ngram_size]))
 
-        self.W_doc = nn.Parameter(torch.FloatTensor(14272, args.num_compressed_capsule))
+        self.W_doc = nn.Parameter(torch.FloatTensor(W_doc_dim, args.num_compressed_capsule))
         torch.nn.init.xavier_uniform_(self.W_doc)
 
         self.fc_capsules_doc_child = FCCaps(args, output_capsule_num=args.num_classes, input_capsule_num=args.num_compressed_capsule,
@@ -85,11 +86,13 @@ class XML_CNN(nn.Module):
         super(XML_CNN, self).__init__()
         self.embed = nn.Embedding(args.vocab_size, args.vec_size)
         self.embed.weight = nn.Parameter(torch.from_numpy(w2v))
-        self.conv13 = nn.Conv1d(500, 32, 2, stride=2)
-        self.conv14 = nn.Conv1d(500, 32, 4, stride=2)
-        self.conv15 = nn.Conv1d(500, 32, 8, stride=2)
+        stride = 2
+        self.conv13 = nn.Conv1d(500, 32, 2, stride=stride)
+        self.conv14 = nn.Conv1d(500, 32, 4, stride=stride)
+        self.conv15 = nn.Conv1d(500, 32, 8, stride=stride)
+        fc1_input_size = 32 * torch.sum(torch.tensor([(args.vec_size - i + 2) // stride for i in [2, 4, 8]]))
 
-        self.fc1 = nn.Linear(14272, 512)
+        self.fc1 = nn.Linear(fc1_input_size, 512)
         self.fc2 = nn.Linear(512, args.num_classes)
         self.m = nn.Sigmoid()
     def conv_and_pool(self, x, conv):
