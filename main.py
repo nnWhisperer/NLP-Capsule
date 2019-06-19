@@ -13,8 +13,10 @@ from utils import set_seeds, get_available_devices
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
 import torch.nn.functional as F
-from dataset_classes import simpleDataset
+from dataset_classes import dynamicProcessing
 """
+TODO: writing an evaluation script for X_test using load_model.
+TODO: saving the best model along with last 3-4(variable on args) models.
 TODO: is it OK to set seeds by calling a method in another file?
 TODO: is it necessary to call torch.cuda.empty_cache() that often?
 """
@@ -58,14 +60,14 @@ def main(main_args):
     validation_step, train_step = 0, 0
     tbx = SummaryWriter(args.save_dir)
 
-    the_dataset = simpleDataset(args)
+    the_dataset = dynamicProcessing(args)
     dataset_loader = torch.utils.data.DataLoader(the_dataset,
                                                  batch_size=args.tr_batch_size,
                                                  shuffle=True,
                                                  num_workers=args.num_workers,
                                                  collate_fn=my_collate_fn)
 
-    embedding_weights = load_word2vec('glove', the_dataset.get_vocabulary_inv(), args.vec_size)
+    embedding_weights = load_word2vec('QNB', embedding_dir=args.preprocessed_data_location)
     args.num_classes = the_dataset.get_class_count()
 
     device, args.gpu_ids = get_available_devices()

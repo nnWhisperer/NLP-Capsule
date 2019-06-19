@@ -1,22 +1,32 @@
 import torch.utils.data
-import data_helpers
+import pandas as pd
+import pickle
+from os.path import join
+import torch
 
 
-class simpleDataset(torch.utils.data.Dataset):
+class dynamicProcessing(torch.utils.data.Dataset):
 
     def __init__(self, args):
-        super(simpleDataset, self).__init__()
-        self.X_trn, self.Y_trn, self.Y_trn_o, self.X_tst, self.Y_tst, self.Y_tst_o, self.vocabulary, self.vocabulary_inv = data_helpers.load_data(args.dataset, max_length=args.sequence_length, vocab_size=args.vocab_size)
+        super(dynamicProcessing, self).__init__()
+        with open(join(args.preprocessed_data_location, "word2idx.pkl"), "rb") as fh:
+            self.word2idx = pickle.load(fh)
+        self.X_train = pd.read_pickle(join(args.preprocessed_data_location, "X_train")).values
+        self.X_val = pd.read_pickle(join(args.preprocessed_data_location, "X_val")).values
+        self.y_train = pd.read_pickle(join(args.preprocessed_data_location, "y_train")).values
+        self.y_val = pd.read_pickle(join(args.preprocessed_data_location, "y_val")).values
+        self.agent_length = args.agent_length
+        self.cust_length = args.cust_length
         self.is_train = True
 
     def get_class_count(self):
-        return self.Y_trn.shape[1]
+        return self.y_train.shape[1]
 
     def get_vocabulary_inv(self):
-        return self.vocabulary_inv
+        return None
 
     def __len__(self):
-        return self.X_trn.shape[0] if self.is_train else self.X_tst.shape[0]
+        return self.X_train.shape[0] if self.is_train else self.X_val.shape[0]
 
     def set_train(self):
         self.is_train = True
@@ -25,4 +35,17 @@ class simpleDataset(torch.utils.data.Dataset):
         self.is_train = False
 
     def __getitem__(self, idx):
-        return (self.X_trn[idx], self.Y_trn_o[idx]) if self.is_train else (self.X_tst[idx], self.Y_tst[idx])
+        return self.process(self.X_train[idx], self.y_train[idx]) if self.is_train else self.process(self.X_val[idx], self.y_val[idx])
+
+    def process(self, X_item, Y_item):
+        X = torch.zeros(self.agent_length + self.cust_length, dtype=torch.long)
+        for i, sentence in enumerate(X_item):
+            for i_token, token in enumerate(sentence.split(" ")):
+                if i_token >= (self.agent_length if i == 0 else self.cust_length):
+                    break
+                if token in self.word2idx:
+                    X[i_token + i * self.agent_length] = self.word2idx[token]
+                else:
+                    X[i_token + i * self.agent_length // 2] = self.word2idx["UNK"]
+
+        return X, Y_item.nonzero()[0].tolist()

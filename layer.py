@@ -142,4 +142,3 @@ class FCCaps(nn.Module):
             #poses, activations = dynamic_routing(batch_size, b_ij, u_hat, self.input_capsule_num)
             poses, activations = KDE_routing(batch_size, b_ij, u_hat)
         return poses, activations
-

@@ -1,6 +1,5 @@
 import torch
 import torch.nn as nn
-import torch.nn.functional as F
 from layer import PrimaryCaps, FCCaps, FlattenCaps
 
 
@@ -17,7 +16,7 @@ class CapsNet_Text(nn.Module):
 
         self.ngram_size = [2, 4, 8]
         stride = 2
-        self.convs_doc = nn.ModuleList([nn.Conv1d(args.sequence_length, 32, K, stride=stride) for K in self.ngram_size])
+        self.convs_doc = nn.ModuleList([nn.Conv1d(args.agent_length + args.cust_length, 32, K, stride=stride) for K in self.ngram_size])
         torch.nn.init.xavier_uniform_(self.convs_doc[0].weight)
         torch.nn.init.xavier_uniform_(self.convs_doc[1].weight)
         torch.nn.init.xavier_uniform_(self.convs_doc[2].weight)
@@ -51,68 +50,3 @@ class CapsNet_Text(nn.Module):
         poses, activations = self.compression(poses, self.W_doc)
         poses, activations = self.fc_capsules_doc_child(poses, activations, labels)
         return poses, activations
-
-
-class CNN_KIM(nn.Module):
-
-    def __init__(self, args, w2v):
-        super(CNN_KIM, self).__init__()
-        self.embed = nn.Embedding(args.vocab_size, args.vec_size)
-        self.embed.weight = nn.Parameter(torch.from_numpy(w2v))
-        self.conv13 = nn.Conv2d(1, 128, (3, args.vec_size))
-        self.conv14 = nn.Conv2d(1, 128, (4, args.vec_size))
-        self.conv15 = nn.Conv2d(1, 128, (5, args.vec_size))
-
-        self.fc1 = nn.Linear(3 * 128, args.num_classes)
-        self.m = nn.Sigmoid()
-
-    def conv_and_pool(self, x, conv):
-        x = F.relu(conv(x)).squeeze(3)
-        x = F.max_pool1d(x, x.size(2)).squeeze(2)
-        return x
-
-    def loss(self, x, target):
-        return nn.BCELoss()(x, target)
-
-    def forward(self, x):
-        x = self.embed(x).unsqueeze(1)
-        x1 = self.conv_and_pool(x, self.conv13)
-        x2 = self.conv_and_pool(x, self.conv14)
-        x3 = self.conv_and_pool(x, self.conv15)
-        x = torch.cat((x1, x2, x3), 1)
-        activations = self.fc1(x)
-        return self.m(activations)
-
-class XML_CNN(nn.Module):
-
-    def __init__(self, args, w2v):
-        super(XML_CNN, self).__init__()
-        self.embed = nn.Embedding(args.vocab_size, args.vec_size)
-        self.embed.weight = nn.Parameter(torch.from_numpy(w2v))
-        stride = 2
-        self.conv13 = nn.Conv1d(500, 32, 2, stride=stride)
-        self.conv14 = nn.Conv1d(500, 32, 4, stride=stride)
-        self.conv15 = nn.Conv1d(500, 32, 8, stride=stride)
-        fc1_input_size = 32 * torch.sum(torch.tensor([(args.vec_size - i + 2) // stride for i in [2, 4, 8]]))
-
-        self.fc1 = nn.Linear(fc1_input_size, 512)
-        self.fc2 = nn.Linear(512, args.num_classes)
-        self.m = nn.Sigmoid()
-    def conv_and_pool(self, x, conv):
-        x = F.relu(conv(x)).squeeze(3)
-        return x
-
-    def loss(self, x, target):
-        return nn.BCELoss()(x, target)
-
-    def forward(self, x):
-        x = self.embed(x)
-        batch_size = x.shape[0]
-
-        x1 = self.conv13(x).reshape(batch_size, -1)
-        x2 = self.conv14(x).reshape(batch_size, -1)
-        x3 = self.conv15(x).reshape(batch_size, -1)
-        x = torch.cat((x1, x2, x3), 1)
-        hidden = self.fc1(x)
-        activations = self.fc2(hidden)
-        return self.m(activations)
