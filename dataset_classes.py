@@ -48,4 +48,4 @@ class dynamicProcessing(torch.utils.data.Dataset):
                 else:
                     X[i_token + i * self.agent_length // 2] = self.word2idx["UNK"]
 
-        return X, Y_item.nonzero()[0].tolist()
+        return X, Y_item.nonzero()[0].tolist() if self.is_train else Y_item.tolist()

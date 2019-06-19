@@ -119,6 +119,7 @@ def main(main_args):
                 train_step += args.tr_batch_size
                 tbx.add_scalar('train/NLL', loss.item(), train_step)
 
+        torch.cuda.empty_cache()
         the_dataset.set_val()
         model.eval()
         losses = []
@@ -129,8 +130,7 @@ def main(main_args):
 
                 data = torch.stack(X, dim=0).to(device)
                 poses, activations = model(data, None)
-                Y = torch.stack(list(map(lambda a: torch.tensor(a.todense(), dtype=torch.float), Y))).squeeze(1)
-                Y = F.pad(Y, (0, activations.shape[1] - Y.shape[1]), "constant", value=0).to(device)
+                Y = torch.tensor(Y, device=device, dtype=torch.float)
                 loss = BCE_loss(activations, Y)
                 losses.append(loss)
 
@@ -139,8 +139,6 @@ def main(main_args):
                 validation_step += args.tr_batch_size
                 tbx.add_scalar('val/NLL', loss.item(), validation_step)
         tbx.add_scalar('val/lossPerEpoch', torch.mean(torch.tensor(losses)).item(), epoch)
-
-        torch.cuda.empty_cache()
 
     checkpoint_path = os.path.join('save', 'model-eur-akde-' + 'last' + '.pth')
     torch.save(model.state_dict(), checkpoint_path)
