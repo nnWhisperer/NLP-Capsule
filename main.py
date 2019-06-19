@@ -12,8 +12,7 @@ import sys
 from utils import set_seeds, get_available_devices
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
-import torch.nn.functional as F
-from dataset_classes import dynamicProcessing
+from dataset_classes import initProcessing
 """
 TODO: writing an evaluation script for X_test using load_model.
 TODO: saving the best model along with last 3-4(variable on args) models.
@@ -60,15 +59,21 @@ def main(main_args):
     validation_step, train_step = 0, 0
     tbx = SummaryWriter(args.save_dir)
 
-    the_dataset = dynamicProcessing(args)
-    dataset_loader = torch.utils.data.DataLoader(the_dataset,
-                                                 batch_size=args.tr_batch_size,
-                                                 shuffle=True,
-                                                 num_workers=args.num_workers,
-                                                 collate_fn=my_collate_fn)
+    train_dataset = initProcessing(args)
+    train_loader = torch.utils.data.DataLoader(train_dataset,
+                                               batch_size=args.tr_batch_size,
+                                               shuffle=True,
+                                               num_workers=args.num_workers,
+                                               collate_fn=my_collate_fn)
+    eval_dataset = initProcessing(args, is_train=False)
+    eval_loader = torch.utils.data.DataLoader(eval_dataset,
+                                              batch_size=args.eval_batch_size,
+                                              shuffle=False,
+                                              num_workers=args.num_workers,
+                                              collate_fn=my_collate_fn)
 
     embedding_weights = load_word2vec('QNB', embedding_dir=args.preprocessed_data_location)
-    args.num_classes = the_dataset.get_class_count()
+    args.num_classes = train_dataset.get_class_count()
 
     device, args.gpu_ids = get_available_devices()
     args.tr_batch_size *= max(1, len(args.gpu_ids))
@@ -98,11 +103,10 @@ def main(main_args):
 
         scheduler.step()
 
-        the_dataset.set_train()
         model.train()
 
-        with torch.enable_grad(), tqdm(total=len(dataset_loader.dataset)) as progress_bar:
-            for X, Y in dataset_loader:
+        with torch.enable_grad(), tqdm(total=len(train_loader.dataset)) as progress_bar:
+            for X, Y in train_loader:
                 start = time.time()
 
                 batch_labels, batch_target = transformLabels(Y, device)
@@ -120,12 +124,11 @@ def main(main_args):
                 tbx.add_scalar('train/NLL', loss.item(), train_step)
 
         torch.cuda.empty_cache()
-        the_dataset.set_val()
         model.eval()
         losses = []
 
-        with torch.no_grad(), tqdm(total=len(dataset_loader.dataset)) as progress_bar:
-            for X, Y in dataset_loader:
+        with torch.no_grad(), tqdm(total=len(eval_loader.dataset)) as progress_bar:
+            for X, Y in eval_loader:
                 start = time.time()
 
                 data = torch.stack(X, dim=0).to(device)
@@ -136,7 +139,7 @@ def main(main_args):
 
                 progress_bar.update(args.tr_batch_size)
                 progress_bar.set_postfix(epoch=epoch, NLL=loss.item(), elapsed=time.time() - start)
-                validation_step += args.tr_batch_size
+                validation_step += args.eval_batch_size
                 tbx.add_scalar('val/NLL', loss.item(), validation_step)
         tbx.add_scalar('val/lossPerEpoch', torch.mean(torch.tensor(losses)).item(), epoch)
 

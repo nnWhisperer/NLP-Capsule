@@ -16,6 +16,7 @@ def get_cap_args(args):
     add_common_args(parser)
 
     parser.add_argument('--tr_batch_size', type=int, default=256, help='Batch size for training')
+    parser.add_argument('--eval_batch_size', type=int, default=256, help='Batch size for validation')
     parser.add_argument('--start_from', type=str, default='', help='')
 
     parser.add_argument('--learning_rate_decay_start', type=int, default=0,
