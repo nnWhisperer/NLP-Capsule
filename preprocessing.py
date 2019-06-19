@@ -2,15 +2,32 @@
 # coding: utf-8
 import pandas as pd
 from sklearn.model_selection import train_test_split
-# from collections import Counter
-# import ujson as json
 import sys
 from args import get_preprocessing_args
 import os
+from os.path import join, isdir
+from making_our_word2vec import construct_word2vec, save_and_assert, save_and_assert_2d
+import numpy as np
+
+
+def lookUpColumn(trim_length, aColumn, word2idx):
+    temp = aColumn.str.split(" ").apply(lambda a: list(map(lambda key: word2idx[key] if key in word2idx else word2idx["UNK"], a)))
+    newArray = np.zeros((len(temp), trim_length), 'long')
+    for i, j in enumerate(temp):
+        max_indice = min(len(j), trim_length)
+        newArray[i][0:max_indice] = j[:max_indice]
+    return newArray
+
+
+def lookUpColumns(a_pd_frame, word2idx, agent_length, cust_length):
+    b = lookUpColumn(agent_length, a_pd_frame["AGENT_TXT"], word2idx)
+    c = lookUpColumn(cust_length, a_pd_frame["CUST_TXT"], word2idx)
+    assert c.shape[0] == b.shape[0]
+    return np.hstack((b, c))
 
 
 def get_file_contents(test_or_train, agent_or_cust_or_target, dir_location='./'):
-    return pd.read_csv(os.path.join(dir_location, "Koc_Yaz_Okulu_Data_" + test_or_train + agent_or_cust_or_target + ".txt"), sep=";", header=0)
+    return pd.read_csv(join(dir_location, "Koc_Yaz_Okulu_Data_" + test_or_train + agent_or_cust_or_target + ".txt"), sep=";", header=0)
 
 
 def main(main_args):
@@ -23,7 +40,7 @@ def main(main_args):
     str_cust = "Cust"
     str_target = "Target"
 
-    if not os.path.isdir(args.input_data_location):
+    if not isdir(args.input_data_location):
         raise Exception(args.input_data_location + " is not a directory.")
     os.makedirs(args.preprocessed_data_location, exist_ok=True)
 
@@ -44,63 +61,34 @@ def main(main_args):
     merged_train.reset_index(inplace=True)
     merged_train.drop("ID", axis=1, inplace=True)
 
-    X_train, X_val, y_train, y_val = train_test_split(merged_train.iloc[:, :2], merged_train.iloc[:, 2:], test_size=0.2, random_state=1)
-    X_train.reset_index(inplace=True)
-    X_train.drop("index", axis=1, inplace=True)
-    X_val.reset_index(inplace=True)
-    X_val.drop("index", axis=1, inplace=True)
-    y_train.reset_index(inplace=True)
-    y_train.drop("index", axis=1, inplace=True)
-    y_val.reset_index(inplace=True)
-    y_val.drop("index", axis=1, inplace=True)
+    values = {}
+    if not os.path.exists(join(args.preprocessed_data_location, "word2idx.pkl")):
+        values["word2idx"], values["embedding_weights"] = construct_word2vec(args, merged_train)
 
-    X_train.to_pickle(args.preprocessed_data_location + "X_train")
-    temp = pd.read_pickle(args.preprocessed_data_location + "X_train")
-    assert X_train.equals(temp)
+        save_and_assert(values, "word2idx", args.preprocessed_data_location)
+        save_and_assert_2d(values, "embedding_weights", args.preprocessed_data_location)
+    else:
+        from pickle import load
+        with open(join(args.preprocessed_data_location, "word2idx.pkl"), "rb") as fh:
+            values["word2idx"] = load(fh)
+    X = lookUpColumns(merged_train, values["word2idx"], args.agent_length, args.cust_length)
 
-    X_val.to_pickle(args.preprocessed_data_location + "X_val")
-    temp = pd.read_pickle(args.preprocessed_data_location + "X_val")
-    assert X_val.equals(temp)
+    values["X_train"], values["X_val"], values["y_train"], values["y_val"] = train_test_split(X, merged_train.iloc[:, 2:].values, test_size=0.2, random_state=1)
 
-    y_train.to_pickle(args.preprocessed_data_location + "y_train")
-    temp = pd.read_pickle(args.preprocessed_data_location + "y_train")
-    assert y_train.equals(temp)
+    def save_and_check(name):
+        save_and_assert_2d(values, name, args.preprocessed_data_location)
 
-    y_val.to_pickle(args.preprocessed_data_location + "y_val")
-    temp = pd.read_pickle(args.preprocessed_data_location + "y_val")
-    assert y_val.equals(temp)
+    save_and_check("X_train")
+    save_and_check("X_val")
+    save_and_check("y_train")
+    save_and_check("y_val")
 
     X_test = test_agent.join(test_cust)
     X_test.reset_index(inplace=True)
     X_test.drop("ID", axis=1, inplace=True)
 
-    X_test.to_pickle(args.preprocessed_data_location + "X_test")
-    temp = pd.read_pickle(args.preprocessed_data_location + "X_test")
-    assert X_test.equals(temp)
-
-    # agent_vocabulary = Counter()
-    # cust_vocabulary = Counter()
-
-    # for i in merged_train["AGENT_TXT"]:
-    #     agent_vocabulary.update(i.split(' '))
-
-    # for i in merged_train["CUST_TXT"]:
-    #     cust_vocabulary.update(i.split(' '))
-
-    # word2idx = {}
-    # for i, key in enumerate(set(cust_vocabulary.keys()).union(set(agent_vocabulary.keys()))):
-    #     word2idx[key] = i
-
-    # assert set(agent_vocabulary.keys()) - set(word2idx.keys()) == set()
-    # assert set(cust_vocabulary.keys()) - set(word2idx.keys()) == set()
-
-    # with open(args.preprocessed_data_location + "word2idx.json", "w") as fh:
-    #     json.dump(word2idx, fh)
-
-    # with open(args.preprocessed_data_location + "word2idx.json", "r") as fh:
-    #     temp = json.load(fh)
-
-    # assert temp == word2idx
+    values["X_test"] = lookUpColumns(X_test, values["word2idx"], args.agent_length, args.cust_length)
+    save_and_check("X_test")
 
 
 if __name__ == '__main__':

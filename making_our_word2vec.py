@@ -31,13 +31,8 @@ class sentence_generator():
             raise StopIteration
 
 
-def main(main_args):
-    args = get_preprocessing_args(main_args)
-    print(args)
-
-    X_train = pd.read_pickle(join(args.preprocessed_data_location, "X_train"))
-    merged_agent_cust = X_train["CUST_TXT"] + " " + X_train["AGENT_TXT"] + " " + X_train["CUST_TXT"] + " " + X_train["AGENT_TXT"]
-
+def construct_word2vec(args, corpus):
+    merged_agent_cust = corpus["CUST_TXT"] + " " + corpus["AGENT_TXT"] + " " + corpus["CUST_TXT"] + " " + corpus["AGENT_TXT"]
     merged_sentences = sentence_generator(merged_agent_cust.reset_index().drop("index", axis=1))
     model = Word2Vec(min_count=1, size=args.vec_size, window=5)
     model.build_vocab(merged_sentences)  # prepare the model vocabulary
@@ -58,23 +53,38 @@ def main(main_args):
 
     assert embedding_weights.shape == (len(model.wv.vocab.keys()), args.vec_size)
     assert all((embedding_weights[word2idx['X7092177']] != np.zeros((1, args.vec_size)))[0])
+    return word2idx, embedding_weights
 
-    with open(join(args.preprocessed_data_location, "word2idx.pkl"), "wb") as fh:
-        pickle.dump(word2idx, fh)
 
-    temp = None
-    with open(join(args.preprocessed_data_location, "word2idx.pkl"), "rb") as fh:
+def save_and_load(values, strname, preprocessed_data_location):
+    with open(join(preprocessed_data_location, strname + ".pkl"), "wb") as fh:
+        pickle.dump(values[strname], fh)
+
+    with open(join(preprocessed_data_location, strname + ".pkl"), "rb") as fh:
         temp = pickle.load(fh)
+    return temp
 
-    assert all([temp[i] == word2idx[i] for i in word2idx.keys()])
 
-    with open(join(args.preprocessed_data_location, "embedding_weights.pkl"), "wb") as fh:
-        pickle.dump(embedding_weights, fh)
+def save_and_assert(values, strname, preprocessed_data_location):
+    temp = save_and_load(values, strname, preprocessed_data_location)
+    assert all([temp[i] == values[strname][i] for i in values[strname].keys()])
 
-    with open(join(args.preprocessed_data_location, "embedding_weights.pkl"), "rb") as fh:
-        temp = pickle.load(fh)
 
-    assert all(all(temp[i] == embedding_weights[i]) for i in range(embedding_weights.shape[0]))
+def save_and_assert_2d(values, strname, preprocessed_data_location):
+    temp = save_and_load(values, strname, preprocessed_data_location)
+    assert all(all(temp[i] == values[strname][i]) for i in range(values[strname].shape[0]))
+
+
+def main(main_args):
+    args = get_preprocessing_args(main_args)
+    print(args)
+
+    X_train = pd.read_pickle(join(args.preprocessed_data_location, "X_train"))
+    values = {}
+    values["word2idx"], values["embedding_weights"] = construct_word2vec(args, X_train)
+
+    save_and_assert(values, "word2idx", args.preprocessed_data_location)
+    save_and_assert_2d(values, "embedding_weights", args.preprocessed_data_location)
 
 
 if __name__ == '__main__':

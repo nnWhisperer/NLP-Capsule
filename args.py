@@ -29,8 +29,6 @@ def get_cap_args(args):
                         help='Options: eurlex_raw_text.p, rcv1_raw_text.p, wiki30k_raw_text.p')
     parser.add_argument('--vocab_size', type=int, default=30001, help='vocabulary size')
 
-    parser.add_argument('--agent_length', type=int, default=300, help='the length of agent text.')
-    parser.add_argument('--cust_length', type=int, default=200, help='the length of customer text.')
     parser.add_argument('--is_AKDE', type=bool, default=True, help='if Adaptive KDE routing is enabled')
     parser.add_argument('--num_epochs', type=int, default=30, help='Number of training epochs')
     parser.add_argument('--learning_rate', type=float, default=1e-3, help='Learning rate for training')
@@ -43,5 +41,7 @@ def get_cap_args(args):
 
 
 def add_common_args(parser):
+    parser.add_argument('--agent_length', type=int, default=300, help='the length of agent text.')
+    parser.add_argument('--cust_length', type=int, default=200, help='the length of customer text.')
     parser.add_argument('--vec_size', type=int, default=50, help='embedding size')
     parser.add_argument('--preprocessed_data_location', type=str, default="./data/", help='Location where output data files will be stored.')
