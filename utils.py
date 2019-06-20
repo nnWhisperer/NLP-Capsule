@@ -2,6 +2,8 @@ import numpy as np
 from multiprocessing import Pool
 import random
 import torch
+from os.path import join
+from pickle import load
 
 
 def precision_at_k(r, k):
@@ -75,3 +77,14 @@ def get_available_devices():
         device = torch.device('cpu')
 
     return device, gpu_ids
+
+
+def tempLoad(location, strname):
+    with open(join(location, strname + ".pkl"), "rb") as fh:
+        temp = load(fh)
+    return torch.tensor(temp, dtype=torch.long)
+
+
+def get_input_tensors(location, is_train=True):
+    return (tempLoad(location, "X_train" if is_train else "X_val"),
+            tempLoad(location, "y_train" if is_train else "y_val"))

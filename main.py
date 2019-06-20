@@ -9,13 +9,12 @@ from torch.optim import Adam
 from network import CapsNet_Text, BCE_loss
 from w2v import load_word2vec
 import sys
-from utils import set_seeds, get_available_devices
+from utils import set_seeds, get_available_devices, get_input_tensors
 from tqdm import tqdm
 from tensorboardX import SummaryWriter
-from dataset_classes import initProcessing
+import torch.utils.data
 """
 TODO: writing an evaluation script for X_test using load_model.
-TODO: dataset initialization could be expedited by vectorizing functions for numpy. right now it takes 96 seconds on my pc.
 TODO: saving the best model along with last 3-4(variable on args) models.
 TODO: is it OK to set seeds by calling a method in another file?
 TODO: is it necessary to call torch.cuda.empty_cache() that often?
@@ -27,7 +26,7 @@ def my_train_collate_fn(examples):
     YList = []
     for example in examples:
         XList.append(example[0])
-        YList.append(example[1].nonzero()[0].tolist())
+        YList.append(torch.nonzero(example[1]).squeeze(1))
     return XList, YList
 
 
@@ -36,7 +35,7 @@ def my_eval_collate_fn(examples):
     YList = []
     for example in examples:
         XList.append(example[0])
-        YList.append(example[1].tolist())
+        YList.append(example[1])
     return XList, YList
 
 
@@ -74,13 +73,13 @@ def main(main_args):
     validation_step, train_step = 0, 0
     tbx = SummaryWriter(args.save_dir)
 
-    train_dataset = initProcessing(args)
+    train_dataset = torch.utils.data.TensorDataset(*get_input_tensors(args.preprocessed_data_location))
     train_loader = torch.utils.data.DataLoader(train_dataset,
                                                batch_size=args.tr_batch_size,
                                                shuffle=True,
                                                num_workers=args.num_workers,
                                                collate_fn=my_train_collate_fn)
-    eval_dataset = initProcessing(args, is_train=False)
+    eval_dataset = torch.utils.data.TensorDataset(*get_input_tensors(args.preprocessed_data_location, is_train=False))
     eval_loader = torch.utils.data.DataLoader(eval_dataset,
                                               batch_size=args.eval_batch_size,
                                               shuffle=False,
@@ -88,7 +87,7 @@ def main(main_args):
                                               collate_fn=my_eval_collate_fn)
 
     embedding_weights = load_word2vec('QNB', embedding_dir=args.preprocessed_data_location)
-    args.num_classes = train_dataset.get_class_count()
+    args.num_classes = len(eval_dataset[0][1])
 
     device, args.gpu_ids = get_available_devices()
     args.tr_batch_size *= max(1, len(args.gpu_ids))
@@ -124,7 +123,7 @@ def main(main_args):
             for X, Y in train_loader:
                 start = time.time()
                 batch_labels, batch_target = transformLabels(Y, device)
-                data = torch.tensor(X).to(device)
+                data = torch.stack(X, dim=0).to(device)
                 optimizer.zero_grad()
                 poses, activations = model(data, batch_labels)
                 loss = BCE_loss(activations, batch_target)
@@ -145,9 +144,9 @@ def main(main_args):
             for X, Y in eval_loader:
                 start = time.time()
 
-                data = torch.tensor(X).to(device)
+                data = torch.stack(X, dim=0).to(device)
                 poses, activations = model(data, None)
-                Y = torch.tensor(Y, device=device, dtype=torch.float)
+                Y = torch.stack(Y, dim=0).float().to(device)
                 loss = BCE_loss(activations, Y)
                 losses.append(loss)
 
